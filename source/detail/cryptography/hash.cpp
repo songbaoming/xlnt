@@ -22,23 +22,24 @@
 // @author: see AUTHORS file
 
 #include <detail/cryptography/hash.hpp>
-#include <detail/cryptography/sha.hpp>
+#include <detail/cryptography/digest.h>
 
 namespace xlnt {
 namespace detail {
 
 void hash(hash_algorithm algorithm, const std::vector<std::uint8_t> &input, std::vector<std::uint8_t> &output)
 {
-    if (algorithm == hash_algorithm::sha512)
+    switch (algorithm)
     {
-        xlnt::detail::sha512(input, output);
-    }
-    else if (algorithm == hash_algorithm::sha1)
-    {
-        xlnt::detail::sha1(input, output);
-    }
-    else
-    {
+    case xlnt::detail::hash_algorithm::sha1:
+        output.resize(SHA1_DIGEST_SIZE);
+        sha1_digest(input.data(), input.size(), output.data());
+        break;
+    case xlnt::detail::hash_algorithm::sha512:
+        output.resize(SHA512_DIGEST_SIZE);
+        sha512_digest(input.data(), input.size(), output.data());
+        break;
+    default:
         throw xlnt::exception("unsupported hash algorithm");
     }
 }

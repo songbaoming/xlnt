@@ -199,7 +199,7 @@ encryption_info::agile_encryption_info read_agile_encryption_info(std::istream &
     key_data.hash_size = parser.attribute<std::size_t>("hashSize");
     key_data.cipher_algorithm = parser.attribute("cipherAlgorithm");
     key_data.cipher_chaining = parser.attribute("cipherChaining");
-    key_data.hash_algorithm = parser.attribute("hashAlgorithm");
+    key_data.hash = parser.attribute<xlnt::detail::hash_algorithm>("hashAlgorithm");
     key_data.salt_value = decode_base64(parser.attribute("saltValue"));
     parser.next_expect(xml::parser::event_type::end_element, xmlns, "keyData");
 

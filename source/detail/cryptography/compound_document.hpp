@@ -44,24 +44,24 @@ struct compound_document_header
 {
     enum class byte_order_type : uint16_t
     {
-        big_endian = 0xFFFE,
-        little_endian = 0xFEFF
+        big_endian = 0xFEFF,
+        little_endian = 0xFFFE
     };
 
     std::uint64_t file_id = 0xE11AB1A1E011CFD0;
-    std::array<std::uint8_t, 16> ignore1 = { { 0 } };
+    std::array<std::uint8_t, 16> ignore1 = {{0}};
     std::uint16_t revision = 0x003E;
     std::uint16_t version = 0x0003;
     byte_order_type byte_order = byte_order_type::little_endian;
     std::uint16_t sector_size_power = 9;
     std::uint16_t short_sector_size_power = 6;
-    std::array<std::uint8_t, 10> ignore2 = { { 0 } };
+    std::array<std::uint8_t, 10> ignore2 = {{0}};
     std::uint32_t num_msat_sectors = 0;
     sector_id directory_start = -1;
-    std::array<std::uint8_t, 4> ignore3 = { { 0 } };
+    std::array<std::uint8_t, 4> ignore3 = {{0}};
     std::uint32_t threshold = 4096;
     sector_id ssat_start = -2;
-    std::uint32_t num_short_sectors = 0;
+    std::uint32_t num_ssat_sectors = 0;
     sector_id extra_msat_start = -2;
     std::uint32_t num_extra_msat_sectors = 0;
     std::array<sector_id, 109> msat = {{0}};
@@ -100,15 +100,15 @@ struct compound_document_entry
         Black = 1
     };
 
-    std::array<char16_t, 32> name_array = { { 0 } };
-    std::uint16_t name_length = 2;
+    std::array<char16_t, 32> name_array = {{0}};
+    std::uint16_t name_length = 0;
     entry_type type = entry_type::Empty;
-    entry_color color = entry_color::Black;
+    entry_color color = entry_color::Red;
     directory_id prev = -1;
     directory_id next = -1;
     directory_id child = -1;
     std::array<std::uint8_t, 36> ignore;
-    sector_id start = -2;
+    sector_id start = 0;
     std::uint32_t size = 0;
     std::uint32_t ignore2;
 };
@@ -132,24 +132,24 @@ private:
     friend class compound_document_istreambuf;
     friend class compound_document_ostreambuf;
 
-    template<typename T>
+    template <typename T>
     void read_sector(sector_id id, binary_writer<T> &writer);
-    template<typename T>
+    template <typename T>
     void read_sector_chain(sector_id id, binary_writer<T> &writer);
-    template<typename T>
+    template <typename T>
     void read_sector_chain(sector_id start, binary_writer<T> &writer, sector_id offset, std::size_t count);
-    template<typename T>
+    template <typename T>
     void read_short_sector(sector_id id, binary_writer<T> &writer);
-    template<typename T>
+    template <typename T>
     void read_short_sector_chain(sector_id start, binary_writer<T> &writer);
-    template<typename T>
+    template <typename T>
     void read_short_sector_chain(sector_id start, binary_writer<T> &writer, sector_id offset, std::size_t count);
 
     sector_chain follow_chain(sector_id start, const sector_chain &table);
 
-    template<typename T>
+    template <typename T>
     void write_sector(binary_reader<T> &reader, sector_id id);
-    template<typename T>
+    template <typename T>
     void write_short_sector(binary_reader<T> &reader, sector_id id);
 
     void read_header();
@@ -207,7 +207,7 @@ private:
     sector_chain msat_;
     sector_chain sat_;
     sector_chain ssat_;
-    std::vector<compound_document_entry> entries_;
+    std::vector<compound_document_entry *> entries_;
 
     std::unordered_map<directory_id, directory_id> parent_storage_;
     std::unordered_map<directory_id, directory_id> parent_;

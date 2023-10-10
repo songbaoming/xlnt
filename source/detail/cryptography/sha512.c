@@ -1,268 +1,276 @@
-/* 
- * SHA-512 hash in C
- * 
- * Copyright (c) 2016 Project Nayuki
- * https://www.nayuki.io/page/fast-sha2-hashes-in-x86-assembly
- * 
- * (MIT License)
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- * - The above copyright notice and this permission notice shall be included in
- *   all copies or substantial portions of the Software.
- * - The Software is provided "as is", without warranty of any kind, express or
- *   implied, including but not limited to the warranties of merchantability,
- *   fitness for a particular purpose and noninfringement. In no event shall the
- *   authors or copyright holders be liable for any claim, damages or other
- *   liability, whether in an action of contract, tort or otherwise, arising from,
- *   out of or in connection with the Software or the use or other dealings in the
- *   Software.
+/*
+ * Copyright 2004-2021 The OpenSSL Project Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
-#include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 
+#include <detail/cryptography/digest.h>
 
-void sha512_compress(uint64_t state[8], const uint8_t block[128]) {
-	#define ROTR64(x, n)  (((0U + (x)) << (64 - (n))) | ((x) >> (n)))  // Assumes that x is uint64_t and 0 < n < 64
-	
-	#define LOADSCHEDULE(i)  \
-		schedule[i] = (uint64_t)block[i * 8 + 0] << 56  \
-		            | (uint64_t)block[i * 8 + 1] << 48  \
-		            | (uint64_t)block[i * 8 + 2] << 40  \
-		            | (uint64_t)block[i * 8 + 3] << 32  \
-		            | (uint64_t)block[i * 8 + 4] << 24  \
-		            | (uint64_t)block[i * 8 + 5] << 16  \
-		            | (uint64_t)block[i * 8 + 6] <<  8  \
-		            | (uint64_t)block[i * 8 + 7] <<  0;
-	
-	#define SCHEDULE(i)  \
-		schedule[i] = 0U + schedule[i - 16] + schedule[i - 7]  \
-			+ (ROTR64(schedule[i - 15], 1) ^ ROTR64(schedule[i - 15], 8) ^ (schedule[i - 15] >> 7))  \
-			+ (ROTR64(schedule[i - 2], 19) ^ ROTR64(schedule[i - 2], 61) ^ (schedule[i - 2] >> 6));
-	
-	#define ROUND(a, b, c, d, e, f, g, h, i, k) \
-		h = 0U + h + (ROTR64(e, 14) ^ ROTR64(e, 18) ^ ROTR64(e, 41)) + (g ^ (e & (f ^ g))) + UINT64_C(k) + schedule[i];  \
-		d = 0U + d + h;  \
-		h = 0U + h + (ROTR64(a, 28) ^ ROTR64(a, 34) ^ ROTR64(a, 39)) + ((a & (b | c)) | (b & c));
-	
-	uint64_t schedule[80];
-	LOADSCHEDULE( 0)
-	LOADSCHEDULE( 1)
-	LOADSCHEDULE( 2)
-	LOADSCHEDULE( 3)
-	LOADSCHEDULE( 4)
-	LOADSCHEDULE( 5)
-	LOADSCHEDULE( 6)
-	LOADSCHEDULE( 7)
-	LOADSCHEDULE( 8)
-	LOADSCHEDULE( 9)
-	LOADSCHEDULE(10)
-	LOADSCHEDULE(11)
-	LOADSCHEDULE(12)
-	LOADSCHEDULE(13)
-	LOADSCHEDULE(14)
-	LOADSCHEDULE(15)
-	SCHEDULE(16)
-	SCHEDULE(17)
-	SCHEDULE(18)
-	SCHEDULE(19)
-	SCHEDULE(20)
-	SCHEDULE(21)
-	SCHEDULE(22)
-	SCHEDULE(23)
-	SCHEDULE(24)
-	SCHEDULE(25)
-	SCHEDULE(26)
-	SCHEDULE(27)
-	SCHEDULE(28)
-	SCHEDULE(29)
-	SCHEDULE(30)
-	SCHEDULE(31)
-	SCHEDULE(32)
-	SCHEDULE(33)
-	SCHEDULE(34)
-	SCHEDULE(35)
-	SCHEDULE(36)
-	SCHEDULE(37)
-	SCHEDULE(38)
-	SCHEDULE(39)
-	SCHEDULE(40)
-	SCHEDULE(41)
-	SCHEDULE(42)
-	SCHEDULE(43)
-	SCHEDULE(44)
-	SCHEDULE(45)
-	SCHEDULE(46)
-	SCHEDULE(47)
-	SCHEDULE(48)
-	SCHEDULE(49)
-	SCHEDULE(50)
-	SCHEDULE(51)
-	SCHEDULE(52)
-	SCHEDULE(53)
-	SCHEDULE(54)
-	SCHEDULE(55)
-	SCHEDULE(56)
-	SCHEDULE(57)
-	SCHEDULE(58)
-	SCHEDULE(59)
-	SCHEDULE(60)
-	SCHEDULE(61)
-	SCHEDULE(62)
-	SCHEDULE(63)
-	SCHEDULE(64)
-	SCHEDULE(65)
-	SCHEDULE(66)
-	SCHEDULE(67)
-	SCHEDULE(68)
-	SCHEDULE(69)
-	SCHEDULE(70)
-	SCHEDULE(71)
-	SCHEDULE(72)
-	SCHEDULE(73)
-	SCHEDULE(74)
-	SCHEDULE(75)
-	SCHEDULE(76)
-	SCHEDULE(77)
-	SCHEDULE(78)
-	SCHEDULE(79)
-	
-	uint64_t a = state[0];
-	uint64_t b = state[1];
-	uint64_t c = state[2];
-	uint64_t d = state[3];
-	uint64_t e = state[4];
-	uint64_t f = state[5];
-	uint64_t g = state[6];
-	uint64_t h = state[7];
-	ROUND(a, b, c, d, e, f, g, h,  0, 0x428A2F98D728AE22)
-	ROUND(h, a, b, c, d, e, f, g,  1, 0x7137449123EF65CD)
-	ROUND(g, h, a, b, c, d, e, f,  2, 0xB5C0FBCFEC4D3B2F)
-	ROUND(f, g, h, a, b, c, d, e,  3, 0xE9B5DBA58189DBBC)
-	ROUND(e, f, g, h, a, b, c, d,  4, 0x3956C25BF348B538)
-	ROUND(d, e, f, g, h, a, b, c,  5, 0x59F111F1B605D019)
-	ROUND(c, d, e, f, g, h, a, b,  6, 0x923F82A4AF194F9B)
-	ROUND(b, c, d, e, f, g, h, a,  7, 0xAB1C5ED5DA6D8118)
-	ROUND(a, b, c, d, e, f, g, h,  8, 0xD807AA98A3030242)
-	ROUND(h, a, b, c, d, e, f, g,  9, 0x12835B0145706FBE)
-	ROUND(g, h, a, b, c, d, e, f, 10, 0x243185BE4EE4B28C)
-	ROUND(f, g, h, a, b, c, d, e, 11, 0x550C7DC3D5FFB4E2)
-	ROUND(e, f, g, h, a, b, c, d, 12, 0x72BE5D74F27B896F)
-	ROUND(d, e, f, g, h, a, b, c, 13, 0x80DEB1FE3B1696B1)
-	ROUND(c, d, e, f, g, h, a, b, 14, 0x9BDC06A725C71235)
-	ROUND(b, c, d, e, f, g, h, a, 15, 0xC19BF174CF692694)
-	ROUND(a, b, c, d, e, f, g, h, 16, 0xE49B69C19EF14AD2)
-	ROUND(h, a, b, c, d, e, f, g, 17, 0xEFBE4786384F25E3)
-	ROUND(g, h, a, b, c, d, e, f, 18, 0x0FC19DC68B8CD5B5)
-	ROUND(f, g, h, a, b, c, d, e, 19, 0x240CA1CC77AC9C65)
-	ROUND(e, f, g, h, a, b, c, d, 20, 0x2DE92C6F592B0275)
-	ROUND(d, e, f, g, h, a, b, c, 21, 0x4A7484AA6EA6E483)
-	ROUND(c, d, e, f, g, h, a, b, 22, 0x5CB0A9DCBD41FBD4)
-	ROUND(b, c, d, e, f, g, h, a, 23, 0x76F988DA831153B5)
-	ROUND(a, b, c, d, e, f, g, h, 24, 0x983E5152EE66DFAB)
-	ROUND(h, a, b, c, d, e, f, g, 25, 0xA831C66D2DB43210)
-	ROUND(g, h, a, b, c, d, e, f, 26, 0xB00327C898FB213F)
-	ROUND(f, g, h, a, b, c, d, e, 27, 0xBF597FC7BEEF0EE4)
-	ROUND(e, f, g, h, a, b, c, d, 28, 0xC6E00BF33DA88FC2)
-	ROUND(d, e, f, g, h, a, b, c, 29, 0xD5A79147930AA725)
-	ROUND(c, d, e, f, g, h, a, b, 30, 0x06CA6351E003826F)
-	ROUND(b, c, d, e, f, g, h, a, 31, 0x142929670A0E6E70)
-	ROUND(a, b, c, d, e, f, g, h, 32, 0x27B70A8546D22FFC)
-	ROUND(h, a, b, c, d, e, f, g, 33, 0x2E1B21385C26C926)
-	ROUND(g, h, a, b, c, d, e, f, 34, 0x4D2C6DFC5AC42AED)
-	ROUND(f, g, h, a, b, c, d, e, 35, 0x53380D139D95B3DF)
-	ROUND(e, f, g, h, a, b, c, d, 36, 0x650A73548BAF63DE)
-	ROUND(d, e, f, g, h, a, b, c, 37, 0x766A0ABB3C77B2A8)
-	ROUND(c, d, e, f, g, h, a, b, 38, 0x81C2C92E47EDAEE6)
-	ROUND(b, c, d, e, f, g, h, a, 39, 0x92722C851482353B)
-	ROUND(a, b, c, d, e, f, g, h, 40, 0xA2BFE8A14CF10364)
-	ROUND(h, a, b, c, d, e, f, g, 41, 0xA81A664BBC423001)
-	ROUND(g, h, a, b, c, d, e, f, 42, 0xC24B8B70D0F89791)
-	ROUND(f, g, h, a, b, c, d, e, 43, 0xC76C51A30654BE30)
-	ROUND(e, f, g, h, a, b, c, d, 44, 0xD192E819D6EF5218)
-	ROUND(d, e, f, g, h, a, b, c, 45, 0xD69906245565A910)
-	ROUND(c, d, e, f, g, h, a, b, 46, 0xF40E35855771202A)
-	ROUND(b, c, d, e, f, g, h, a, 47, 0x106AA07032BBD1B8)
-	ROUND(a, b, c, d, e, f, g, h, 48, 0x19A4C116B8D2D0C8)
-	ROUND(h, a, b, c, d, e, f, g, 49, 0x1E376C085141AB53)
-	ROUND(g, h, a, b, c, d, e, f, 50, 0x2748774CDF8EEB99)
-	ROUND(f, g, h, a, b, c, d, e, 51, 0x34B0BCB5E19B48A8)
-	ROUND(e, f, g, h, a, b, c, d, 52, 0x391C0CB3C5C95A63)
-	ROUND(d, e, f, g, h, a, b, c, 53, 0x4ED8AA4AE3418ACB)
-	ROUND(c, d, e, f, g, h, a, b, 54, 0x5B9CCA4F7763E373)
-	ROUND(b, c, d, e, f, g, h, a, 55, 0x682E6FF3D6B2B8A3)
-	ROUND(a, b, c, d, e, f, g, h, 56, 0x748F82EE5DEFB2FC)
-	ROUND(h, a, b, c, d, e, f, g, 57, 0x78A5636F43172F60)
-	ROUND(g, h, a, b, c, d, e, f, 58, 0x84C87814A1F0AB72)
-	ROUND(f, g, h, a, b, c, d, e, 59, 0x8CC702081A6439EC)
-	ROUND(e, f, g, h, a, b, c, d, 60, 0x90BEFFFA23631E28)
-	ROUND(d, e, f, g, h, a, b, c, 61, 0xA4506CEBDE82BDE9)
-	ROUND(c, d, e, f, g, h, a, b, 62, 0xBEF9A3F7B2C67915)
-	ROUND(b, c, d, e, f, g, h, a, 63, 0xC67178F2E372532B)
-	ROUND(a, b, c, d, e, f, g, h, 64, 0xCA273ECEEA26619C)
-	ROUND(h, a, b, c, d, e, f, g, 65, 0xD186B8C721C0C207)
-	ROUND(g, h, a, b, c, d, e, f, 66, 0xEADA7DD6CDE0EB1E)
-	ROUND(f, g, h, a, b, c, d, e, 67, 0xF57D4F7FEE6ED178)
-	ROUND(e, f, g, h, a, b, c, d, 68, 0x06F067AA72176FBA)
-	ROUND(d, e, f, g, h, a, b, c, 69, 0x0A637DC5A2C898A6)
-	ROUND(c, d, e, f, g, h, a, b, 70, 0x113F9804BEF90DAE)
-	ROUND(b, c, d, e, f, g, h, a, 71, 0x1B710B35131C471B)
-	ROUND(a, b, c, d, e, f, g, h, 72, 0x28DB77F523047D84)
-	ROUND(h, a, b, c, d, e, f, g, 73, 0x32CAAB7B40C72493)
-	ROUND(g, h, a, b, c, d, e, f, 74, 0x3C9EBE0A15C9BEBC)
-	ROUND(f, g, h, a, b, c, d, e, 75, 0x431D67C49C100D4C)
-	ROUND(e, f, g, h, a, b, c, d, 76, 0x4CC5D4BECB3E42B6)
-	ROUND(d, e, f, g, h, a, b, c, 77, 0x597F299CFC657E2A)
-	ROUND(c, d, e, f, g, h, a, b, 78, 0x5FCB6FAB3AD6FAEC)
-	ROUND(b, c, d, e, f, g, h, a, 79, 0x6C44198C4A475817)
-	state[0] = 0U + state[0] + a;
-	state[1] = 0U + state[1] + b;
-	state[2] = 0U + state[2] + c;
-	state[3] = 0U + state[3] + d;
-	state[4] = 0U + state[4] + e;
-	state[5] = 0U + state[5] + f;
-	state[6] = 0U + state[6] + g;
-	state[7] = 0U + state[7] + h;
+#define GETU64(p) \
+    ((uint64_t)(p)[0] << 56 | (uint64_t)(p)[1] << 48 | (uint64_t)(p)[2] << 40 | (uint64_t)(p)[3] << 32 | (uint64_t)(p)[4] << 24 | (uint64_t)(p)[5] << 16 | (uint64_t)(p)[6] << 8 | (uint64_t)(p)[7])
+
+#define PUTU64(p, V)                   \
+    ((p)[0] = (uint8_t)((V) >> 56),    \
+        (p)[1] = (uint8_t)((V) >> 48), \
+        (p)[2] = (uint8_t)((V) >> 40), \
+        (p)[3] = (uint8_t)((V) >> 32), \
+        (p)[4] = (uint8_t)((V) >> 24), \
+        (p)[5] = (uint8_t)((V) >> 16), \
+        (p)[6] = (uint8_t)((V) >> 8),  \
+        (p)[7] = (uint8_t)(V))
+
+#define ROL64(a, n) (((a) << (n)) | ((a) >> (64 - (n))))
+#define ROR64(a, n) ROL64(a, 64 - n)
+
+static void sha512_compress_blocks(uint64_t state[8],
+    const unsigned char *data, size_t blocks);
+
+void sha512_init(SHA512_CTX *ctx)
+{
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->state[0] = 0x6a09e667f3bcc908;
+    ctx->state[1] = 0xbb67ae8584caa73b;
+    ctx->state[2] = 0x3c6ef372fe94f82b;
+    ctx->state[3] = 0xa54ff53a5f1d36f1;
+    ctx->state[4] = 0x510e527fade682d1;
+    ctx->state[5] = 0x9b05688c2b3e6c1f;
+    ctx->state[6] = 0x1f83d9abfb41bd6b;
+    ctx->state[7] = 0x5be0cd19137e2179;
 }
 
+void sha512_update(SHA512_CTX *ctx, const unsigned char *data, size_t datalen)
+{
+    size_t blocks;
 
-void sha512_hash(const uint8_t *message, size_t len, uint64_t hash[8]) {
-    hash[0] = UINT64_C(0x6A09E667F3BCC908);
-    hash[1] = UINT64_C(0xBB67AE8584CAA73B);
-    hash[2] = UINT64_C(0x3C6EF372FE94F82B);
-    hash[3] = UINT64_C(0xA54FF53A5F1D36F1);
-    hash[4] = UINT64_C(0x510E527FADE682D1);
-    hash[5] = UINT64_C(0x9B05688C2B3E6C1F);
-    hash[6] = UINT64_C(0x1F83D9ABFB41BD6B);
-    hash[7] = UINT64_C(0x5BE0CD19137E2179);
-
-#define BLOCK_SIZE 128  // In bytes
-#define LENGTH_SIZE 16  // In bytes
-
-    size_t off;
-    for (off = 0; len - off >= BLOCK_SIZE; off += BLOCK_SIZE)
-        sha512_compress(hash, &message[off]);
-
-    uint8_t block[BLOCK_SIZE] = { 0 };
-    size_t rem = len - off;
-    memcpy(block, &message[off], rem);
-
-    block[rem] = 0x80;
-    rem++;
-    if (BLOCK_SIZE - rem < LENGTH_SIZE) {
-        sha512_compress(hash, block);
-        memset(block, 0, sizeof(block));
+    if (ctx->num)
+    {
+        size_t left = SHA512_BLOCK_SIZE - ctx->num;
+        if (datalen < left)
+        {
+            memcpy(ctx->block + ctx->num, data, datalen);
+            ctx->num += datalen;
+            return;
+        }
+        else
+        {
+            memcpy(ctx->block + ctx->num, data, left);
+            sha512_compress_blocks(ctx->state, ctx->block, 1);
+            ctx->nblocks++;
+            data += left;
+            datalen -= left;
+        }
     }
 
-    block[BLOCK_SIZE - 1] = (uint8_t)((len & 0x1FU) << 3);
-    len >>= 5;
-	int i;
-    for (i = 1; i < LENGTH_SIZE; i++, len >>= 8)
-        block[BLOCK_SIZE - 1 - i] = (uint8_t)(len & 0xFFU);
-    sha512_compress(hash, block);
+    blocks = datalen / SHA512_BLOCK_SIZE;
+    if (blocks)
+    {
+        sha512_compress_blocks(ctx->state, data, blocks);
+        ctx->nblocks += blocks;
+        data += SHA512_BLOCK_SIZE * blocks;
+        datalen -= SHA512_BLOCK_SIZE * blocks;
+    }
+
+    ctx->num = datalen;
+    if (datalen)
+    {
+        memcpy(ctx->block, data, datalen);
+    }
+}
+
+void sha512_finish(SHA512_CTX *ctx, unsigned char dgst[SHA512_DIGEST_SIZE])
+{
+    int i;
+
+    ctx->block[ctx->num] = 0x80;
+
+    if (ctx->num + 17 <= SHA512_BLOCK_SIZE)
+    {
+        memset(ctx->block + ctx->num + 1, 0, SHA512_BLOCK_SIZE - ctx->num - 17);
+    }
+    else
+    {
+        memset(ctx->block + ctx->num + 1, 0, SHA512_BLOCK_SIZE - ctx->num - 1);
+        sha512_compress_blocks(ctx->state, ctx->block, 1);
+        memset(ctx->block, 0, SHA512_BLOCK_SIZE - 16);
+    }
+    PUTU64(ctx->block + 112, ctx->nblocks >> 54);
+    PUTU64(ctx->block + 120, (ctx->nblocks << 10) + (ctx->num << 3));
+
+    sha512_compress_blocks(ctx->state, ctx->block, 1);
+    for (i = 0; i < 8; i++)
+    {
+        PUTU64(dgst, ctx->state[i]);
+        dgst += sizeof(uint64_t);
+    }
+    memset(ctx, 0, sizeof(SHA512_CTX));
+}
+
+static void sha512_compress_blocks(uint64_t state[8],
+    const unsigned char *data, size_t blocks)
+{
+#define Ch(X, Y, Z) (((X) & (Y)) ^ ((~(X)) & (Z)))
+#define Maj(X, Y, Z) (((X) & (Y)) ^ ((X) & (Z)) ^ ((Y) & (Z)))
+#define Sigma0(X) (ROR64((X), 28) ^ ROR64((X), 34) ^ ROR64((X), 39))
+#define Sigma1(X) (ROR64((X), 14) ^ ROR64((X), 18) ^ ROR64((X), 41))
+#define sigma0(X) (ROR64((X), 1) ^ ROR64((X), 8) ^ ((X) >> 7))
+#define sigma1(X) (ROR64((X), 19) ^ ROR64((X), 61) ^ ((X) >> 6))
+
+    static const uint64_t K[80] = {
+        0x428a2f98d728ae22,
+        0x7137449123ef65cd,
+        0xb5c0fbcfec4d3b2f,
+        0xe9b5dba58189dbbc,
+        0x3956c25bf348b538,
+        0x59f111f1b605d019,
+        0x923f82a4af194f9b,
+        0xab1c5ed5da6d8118,
+        0xd807aa98a3030242,
+        0x12835b0145706fbe,
+        0x243185be4ee4b28c,
+        0x550c7dc3d5ffb4e2,
+        0x72be5d74f27b896f,
+        0x80deb1fe3b1696b1,
+        0x9bdc06a725c71235,
+        0xc19bf174cf692694,
+        0xe49b69c19ef14ad2,
+        0xefbe4786384f25e3,
+        0x0fc19dc68b8cd5b5,
+        0x240ca1cc77ac9c65,
+        0x2de92c6f592b0275,
+        0x4a7484aa6ea6e483,
+        0x5cb0a9dcbd41fbd4,
+        0x76f988da831153b5,
+        0x983e5152ee66dfab,
+        0xa831c66d2db43210,
+        0xb00327c898fb213f,
+        0xbf597fc7beef0ee4,
+        0xc6e00bf33da88fc2,
+        0xd5a79147930aa725,
+        0x06ca6351e003826f,
+        0x142929670a0e6e70,
+        0x27b70a8546d22ffc,
+        0x2e1b21385c26c926,
+        0x4d2c6dfc5ac42aed,
+        0x53380d139d95b3df,
+        0x650a73548baf63de,
+        0x766a0abb3c77b2a8,
+        0x81c2c92e47edaee6,
+        0x92722c851482353b,
+        0xa2bfe8a14cf10364,
+        0xa81a664bbc423001,
+        0xc24b8b70d0f89791,
+        0xc76c51a30654be30,
+        0xd192e819d6ef5218,
+        0xd69906245565a910,
+        0xf40e35855771202a,
+        0x106aa07032bbd1b8,
+        0x19a4c116b8d2d0c8,
+        0x1e376c085141ab53,
+        0x2748774cdf8eeb99,
+        0x34b0bcb5e19b48a8,
+        0x391c0cb3c5c95a63,
+        0x4ed8aa4ae3418acb,
+        0x5b9cca4f7763e373,
+        0x682e6ff3d6b2b8a3,
+        0x748f82ee5defb2fc,
+        0x78a5636f43172f60,
+        0x84c87814a1f0ab72,
+        0x8cc702081a6439ec,
+        0x90befffa23631e28,
+        0xa4506cebde82bde9,
+        0xbef9a3f7b2c67915,
+        0xc67178f2e372532b,
+        0xca273eceea26619c,
+        0xd186b8c721c0c207,
+        0xeada7dd6cde0eb1e,
+        0xf57d4f7fee6ed178,
+        0x06f067aa72176fba,
+        0x0a637dc5a2c898a6,
+        0x113f9804bef90dae,
+        0x1b710b35131c471b,
+        0x28db77f523047d84,
+        0x32caab7b40c72493,
+        0x3c9ebe0a15c9bebc,
+        0x431d67c49c100d4c,
+        0x4cc5d4becb3e42b6,
+        0x597f299cfc657e2a,
+        0x5fcb6fab3ad6faec,
+        0x6c44198c4a475817,
+    };
+
+    uint64_t A;
+    uint64_t B;
+    uint64_t C;
+    uint64_t D;
+    uint64_t E;
+    uint64_t F;
+    uint64_t G;
+    uint64_t H;
+    uint64_t W[80];
+    uint64_t T1, T2;
+    int i;
+
+    while (blocks--)
+    {
+        A = state[0];
+        B = state[1];
+        C = state[2];
+        D = state[3];
+        E = state[4];
+        F = state[5];
+        G = state[6];
+        H = state[7];
+
+        for (i = 0; i < 16; i++)
+        {
+            W[i] = GETU64(data);
+            data += sizeof(uint64_t);
+        }
+        for (; i < 80; i++)
+        {
+            W[i] = sigma1(W[i - 2]) + W[i - 7] + sigma0(W[i - 15]) + W[i - 16];
+        }
+
+        for (i = 0; i < 80; i++)
+        {
+            T1 = H + Sigma1(E) + Ch(E, F, G) + K[i] + W[i];
+            T2 = Sigma0(A) + Maj(A, B, C);
+            H = G;
+            G = F;
+            F = E;
+            E = D + T1;
+            D = C;
+            C = B;
+            B = A;
+            A = T1 + T2;
+        }
+
+        state[0] += A;
+        state[1] += B;
+        state[2] += C;
+        state[3] += D;
+        state[4] += E;
+        state[5] += F;
+        state[6] += G;
+        state[7] += H;
+    }
+}
+
+void sha512_compress(uint64_t state[8], const unsigned char block[64])
+{
+    sha512_compress_blocks(state, block, 1);
+}
+
+void sha512_digest(const unsigned char *data, size_t datalen,
+    unsigned char dgst[SHA512_DIGEST_SIZE])
+{
+    SHA512_CTX ctx;
+    sha512_init(&ctx);
+    sha512_update(&ctx, data, datalen);
+    sha512_finish(&ctx, dgst);
 }

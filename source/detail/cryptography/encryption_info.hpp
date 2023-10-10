@@ -36,6 +36,7 @@ struct encryption_info
     bool is_agile = true;
 
     std::u16string password;
+    std::vector<std::uint8_t> encryption_key;
 
     struct standard_encryption_info
     {
@@ -63,7 +64,7 @@ struct encryption_info
             std::size_t hash_size;
             std::string cipher_algorithm;
             std::string cipher_chaining;
-            std::string hash_algorithm;
+            hash_algorithm hash;
             std::vector<std::uint8_t> salt_value;
         } key_data;
 
@@ -91,6 +92,8 @@ struct encryption_info
     } agile;
 
     std::vector<std::uint8_t> calculate_key() const;
+
+    static encryption_info generate_encryption_info(const std::u16string &password);
 };
 
 } // namespace detail

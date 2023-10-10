@@ -27,6 +27,7 @@
 #include <detail/cryptography/base64.hpp>
 #include <detail/cryptography/compound_document.hpp>
 #include <detail/cryptography/encryption_info.hpp>
+#include <detail/cryptography/hmac.h>
 #include <detail/cryptography/value_traits.hpp>
 #include <detail/cryptography/xlsx_crypto_producer.hpp>
 #include <detail/external/include_libstudxml.hpp>
@@ -38,66 +39,6 @@
 namespace {
 
 using xlnt::detail::encryption_info;
-
-encryption_info generate_encryption_info(const std::u16string & /*password*/)
-{
-    encryption_info result;
-
-    result.is_agile = true;
-
-    result.agile = encryption_info::agile_encryption_info();
-
-    result.agile.key_data.block_size = 16;
-    result.agile.key_data.cipher_algorithm = "AES";
-    result.agile.key_data.cipher_chaining = "ChainingModeCBC";
-    result.agile.key_data.hash_algorithm = "SHA512";
-    result.agile.key_data.hash_size = 64;
-    result.agile.key_data.key_bits = 256;
-    result.agile.key_data.salt_size = 16;
-    result.agile.key_data.salt_value =
-        {
-            {40, 183, 193, 64, 115, 97, 10, 177, 122, 50, 243, 123, 229, 145, 162, 247}};
-
-    result.agile.data_integrity.hmac_key =
-        {
-            {90, 206, 203, 147, 102, 81, 82, 14, 118, 94, 168, 38, 200, 79, 13, 147, 60,
-                123, 167, 220, 17, 165, 124, 188, 206, 74, 98, 33, 156, 63, 220, 152, 180, 201,
-                167, 183, 141, 252, 182, 55, 90, 189, 187, 167, 230, 186, 61, 239, 80, 49, 54,
-                208, 52, 133, 232, 187, 117, 136, 213, 48, 133, 15, 7, 126}};
-    result.agile.data_integrity.hmac_value =
-        {
-            {49, 128, 174, 178, 161, 48, 1, 82, 241, 103, 72, 223, 103, 111, 204, 73,
-                210, 70, 254, 43, 12, 134, 180, 201, 124, 153, 214, 115, 82, 184, 78, 2,
-                166, 106, 69, 18, 173, 177, 40, 238, 243, 240, 3, 86, 145, 218, 223, 177,
-                36, 34, 44, 159, 104, 163, 217, 42, 203, 135, 173, 14, 218, 172, 72, 224}};
-
-    result.agile.key_encryptor.spin_count = 100000;
-    result.agile.key_encryptor.block_size = 16;
-    result.agile.key_encryptor.cipher_algorithm = "AES";
-    result.agile.key_encryptor.cipher_chaining = "ChainingModeCBC";
-    result.agile.key_encryptor.hash = xlnt::detail::hash_algorithm::sha512;
-    result.agile.key_encryptor.hash_size = 64;
-    result.agile.key_encryptor.key_bits = 256;
-    result.agile.key_encryptor.salt_size = 16;
-    result.agile.key_encryptor.salt_value =
-        {
-            {98, 169, 85, 224, 173, 253, 2, 52, 199, 108, 195, 73, 116, 112, 72, 165}};
-    result.agile.key_encryptor.verifier_hash_input =
-        {
-            {179, 105, 118, 193, 217, 180, 248, 7, 174, 45, 186, 17, 202, 101, 178, 12}};
-    result.agile.key_encryptor.verifier_hash_value =
-        {
-            {82, 190, 235, 102, 30, 33, 103, 191, 3, 160, 153, 30, 127, 117, 8, 195, 65,
-                245, 77, 219, 85, 28, 206, 236, 55, 86, 243, 49, 104, 128, 243, 138, 227, 113,
-                82, 88, 88, 73, 243, 108, 193, 11, 84, 162, 235, 189, 9, 137, 151, 97, 43,
-                137, 197, 72, 164, 192, 65, 252, 253, 227, 236, 242, 252, 179}};
-    result.agile.key_encryptor.encrypted_key_value =
-        {
-            {220, 6, 106, 218, 31, 210, 9, 75, 28, 154, 173, 232, 190, 109, 112, 203, 25,
-                5, 45, 152, 75, 131, 122, 17, 166, 95, 117, 124, 121, 123, 32, 133}};
-
-    return result;
-}
 
 void write_agile_encryption_info(
     const encryption_info &info,
@@ -113,10 +54,17 @@ void write_agile_encryption_info(
 
     static const auto &xmlns = xlnt::constants::ns("encryption");
     static const auto &xmlns_p = xlnt::constants::ns("encryption-password");
+    static const auto &xmlns_c = xlnt::constants::ns("encryption-certificate");
 
-    xml::serializer serializer(info_stream, "EncryptionInfo");
+    xml::serializer serializer(info_stream, "EncryptionInfo", 0);
+
+    serializer.xml_decl("1.0", "UTF-8", "yes");
 
     serializer.start_element(xmlns, "encryption");
+
+    serializer.namespace_decl(xmlns, "");
+    serializer.namespace_decl(xmlns_p, "p");
+    serializer.namespace_decl(xmlns_c, "c");
 
     const auto key_data = info.agile.key_data;
     serializer.start_element(xmlns, "keyData");
@@ -126,7 +74,7 @@ void write_agile_encryption_info(
     serializer.attribute("hashSize", key_data.hash_size);
     serializer.attribute("cipherAlgorithm", key_data.cipher_algorithm);
     serializer.attribute("cipherChaining", key_data.cipher_chaining);
-    serializer.attribute("hashAlgorithm", key_data.hash_algorithm);
+    serializer.attribute("hashAlgorithm", key_data.hash);
     serializer.attribute("saltValue",
         xlnt::detail::encode_base64(key_data.salt_value));
     serializer.end_element(xmlns, "keyData");
@@ -142,7 +90,7 @@ void write_agile_encryption_info(
     const auto key_encryptor = info.agile.key_encryptor;
     serializer.start_element(xmlns, "keyEncryptors");
     serializer.start_element(xmlns, "keyEncryptor");
-    serializer.attribute("uri", "");
+    serializer.attribute("uri", xmlns_p);
     serializer.start_element(xmlns_p, "encryptedKey");
     serializer.attribute("spinCount", key_encryptor.spin_count);
     serializer.attribute("saltSize", key_encryptor.salt_size);
@@ -208,14 +156,14 @@ void write_standard_encryption_info(const encryption_info &info, std::ostream &i
 }
 
 void encrypt_xlsx_agile(
-    const encryption_info &info,
+    encryption_info &info,
     const std::vector<std::uint8_t> &plaintext,
     std::ostream &ciphertext_stream)
 {
     const auto length = static_cast<std::uint64_t>(plaintext.size());
     ciphertext_stream.write(reinterpret_cast<const char *>(&length), sizeof(std::uint64_t));
 
-    auto key = info.calculate_key();
+    auto &key = info.encryption_key;
 
     auto salt_size = info.agile.key_data.salt_size;
     auto salt_with_block_key = info.agile.key_data.salt_value;
@@ -224,6 +172,10 @@ void encrypt_xlsx_agile(
 
     auto segment = std::vector<std::uint8_t>(4096, 0);
 
+    HMAC_CTX ctx;
+    auto &salt = info.agile.data_integrity.hmac_value;
+    hmac_init(&ctx, DIGEST_sha512(), salt.data(), salt.size());
+    hmac_update(&ctx, (const uint8_t *)&length, sizeof(length));
     for (auto i = std::size_t(0); i < length; i += 4096)
     {
         auto iv = hash(info.agile.key_encryptor.hash, salt_with_block_key);
@@ -233,11 +185,26 @@ void encrypt_xlsx_agile(
         auto bytes = std::min(std::size_t(length - i), std::size_t(4096));
         std::copy(start, start + static_cast<std::ptrdiff_t>(bytes), segment.begin());
         auto encrypted_segment = xlnt::detail::aes_cbc_encrypt(segment, key, iv);
+        auto mod = bytes % info.agile.key_encryptor.block_size;
+        if (mod)
+            bytes = bytes + info.agile.key_encryptor.block_size - mod;
+        hmac_update(&ctx, (const uint8_t *)encrypted_segment.data(), bytes);
         ciphertext_stream.write(reinterpret_cast<char *>(encrypted_segment.data()),
             static_cast<std::streamsize>(bytes));
-
         ++segment_index;
     }
+
+    size_t len = 0;
+    hmac_finish(&ctx, segment.data(), &len);
+    segment.resize(len);
+
+    const std::array<std::uint8_t, 8> integrity_block_key2 = {{0xa0, 0x67, 0x7f, 0x02, 0xb2, 0x2c, 0x84, 0x33}};
+    auto combined(info.agile.key_data.salt_value);
+    combined.insert(combined.end(), integrity_block_key2.begin(), integrity_block_key2.end());
+    auto iv = xlnt::detail::hash(info.agile.key_data.hash, combined);
+    iv.resize(info.agile.key_data.block_size);
+
+    info.agile.data_integrity.hmac_value = xlnt::detail::aes_cbc_encrypt(segment, key, iv);
 }
 
 void encrypt_xlsx_standard(
@@ -262,12 +229,60 @@ void encrypt_xlsx_standard(
     }
 }
 
+void write_data_spaces(xlnt::detail::compound_document &document)
+{
+    // /\006DataSpaces/Version
+    static const char version[76] = {
+        0x3C, 0x00, 0x00, 0x00, 0x4D, 0x00, 0x69, 0x00, 0x63, 0x00, 0x72, 0x00, 0x6F, 0x00, 0x73, 0x00,
+        0x6F, 0x00, 0x66, 0x00, 0x74, 0x00, 0x2E, 0x00, 0x43, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x74, 0x00,
+        0x61, 0x00, 0x69, 0x00, 0x6E, 0x00, 0x65, 0x00, 0x72, 0x00, 0x2E, 0x00, 0x44, 0x00, 0x61, 0x00,
+        0x74, 0x00, 0x61, 0x00, 0x53, 0x00, 0x70, 0x00, 0x61, 0x00, 0x63, 0x00, 0x65, 0x00, 0x73, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+    document.open_write_stream("/\006DataSpaces/Version").write(version, sizeof(version));
+
+    // /\006DataSpaces/DataSpaceMap
+    static const char data_space_map[112] = {
+        0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x45, 0x00, 0x6E, 0x00, 0x63, 0x00, 0x72, 0x00,
+        0x79, 0x00, 0x70, 0x00, 0x74, 0x00, 0x65, 0x00, 0x64, 0x00, 0x50, 0x00, 0x61, 0x00, 0x63, 0x00,
+        0x6B, 0x00, 0x61, 0x00, 0x67, 0x00, 0x65, 0x00, 0x32, 0x00, 0x00, 0x00, 0x53, 0x00, 0x74, 0x00,
+        0x72, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x67, 0x00, 0x45, 0x00, 0x6E, 0x00, 0x63, 0x00, 0x72, 0x00,
+        0x79, 0x00, 0x70, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x44, 0x00, 0x61, 0x00,
+        0x74, 0x00, 0x61, 0x00, 0x53, 0x00, 0x70, 0x00, 0x61, 0x00, 0x63, 0x00, 0x65, 0x00, 0x00, 0x00};
+    document.open_write_stream("/\006DataSpaces/DataSpaceMap").write(data_space_map, sizeof(data_space_map));
+
+    // /\006DataSpaces/DataSpaceInfo/StrongEncryptionDataSpace
+    static const char data[64] = {
+        0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x53, 0x00, 0x74, 0x00,
+        0x72, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x67, 0x00, 0x45, 0x00, 0x6E, 0x00, 0x63, 0x00, 0x72, 0x00,
+        0x79, 0x00, 0x70, 0x00, 0x74, 0x00, 0x69, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x54, 0x00, 0x72, 0x00,
+        0x61, 0x00, 0x6E, 0x00, 0x73, 0x00, 0x66, 0x00, 0x6F, 0x00, 0x72, 0x00, 0x6D, 0x00, 0x00, 0x00};
+    document.open_write_stream("/\006DataSpaces/DataSpaceInfo/StrongEncryptionDataSpace").write(data, sizeof(data));
+
+    // /\006DataSpaces/TransformInfo/StrongEncryptionTransform/\006Primary
+    static const char primary[200] = {
+        0x58, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x4C, 0x00, 0x00, 0x00, 0x7B, 0x00, 0x46, 0x00,
+        0x46, 0x00, 0x39, 0x00, 0x41, 0x00, 0x33, 0x00, 0x46, 0x00, 0x30, 0x00, 0x33, 0x00, 0x2D, 0x00,
+        0x35, 0x00, 0x36, 0x00, 0x45, 0x00, 0x46, 0x00, 0x2D, 0x00, 0x34, 0x00, 0x36, 0x00, 0x31, 0x00,
+        0x33, 0x00, 0x2D, 0x00, 0x42, 0x00, 0x44, 0x00, 0x44, 0x00, 0x35, 0x00, 0x2D, 0x00, 0x35, 0x00,
+        0x41, 0x00, 0x34, 0x00, 0x31, 0x00, 0x43, 0x00, 0x31, 0x00, 0x44, 0x00, 0x30, 0x00, 0x37, 0x00,
+        0x32, 0x00, 0x34, 0x00, 0x36, 0x00, 0x7D, 0x00, 0x4E, 0x00, 0x00, 0x00, 0x4D, 0x00, 0x69, 0x00,
+        0x63, 0x00, 0x72, 0x00, 0x6F, 0x00, 0x73, 0x00, 0x6F, 0x00, 0x66, 0x00, 0x74, 0x00, 0x2E, 0x00,
+        0x43, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x74, 0x00, 0x61, 0x00, 0x69, 0x00, 0x6E, 0x00, 0x65, 0x00,
+        0x72, 0x00, 0x2E, 0x00, 0x45, 0x00, 0x6E, 0x00, 0x63, 0x00, 0x72, 0x00, 0x79, 0x00, 0x70, 0x00,
+        0x74, 0x00, 0x69, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x54, 0x00, 0x72, 0x00, 0x61, 0x00, 0x6E, 0x00,
+        0x73, 0x00, 0x66, 0x00, 0x6F, 0x00, 0x72, 0x00, 0x6D, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00};
+    document.open_write_stream("/\006DataSpaces/TransformInfo/StrongEncryptionTransform/\006Primary")
+        .write(primary, sizeof(primary));
+}
+
 std::vector<std::uint8_t> encrypt_xlsx(
     const std::vector<std::uint8_t> &plaintext,
     const std::u16string &password)
 {
-    auto encryption_info = generate_encryption_info(password);
-    encryption_info.password = u"secret";
+    auto encryption_info = encryption_info::generate_encryption_info(password);
 
     auto ciphertext = std::vector<std::uint8_t>();
 
@@ -275,19 +290,21 @@ std::vector<std::uint8_t> encrypt_xlsx(
     std::ostream stream(&buffer);
     xlnt::detail::compound_document document(stream);
 
+    write_data_spaces(document);
+
     if (encryption_info.is_agile)
     {
-        write_agile_encryption_info(encryption_info,
-            document.open_write_stream("/EncryptionInfo"));
         encrypt_xlsx_agile(encryption_info, plaintext,
             document.open_write_stream("/EncryptedPackage"));
+        write_agile_encryption_info(encryption_info,
+            document.open_write_stream("/EncryptionInfo"));
     }
     else
     {
-        write_standard_encryption_info(encryption_info,
-            document.open_write_stream("/EncryptionInfo"));
         encrypt_xlsx_standard(encryption_info, plaintext,
             document.open_write_stream("/EncryptedPackage"));
+        write_standard_encryption_info(encryption_info,
+            document.open_write_stream("/EncryptionInfo"));
     }
 
     return ciphertext;

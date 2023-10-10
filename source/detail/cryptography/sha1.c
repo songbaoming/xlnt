@@ -1,181 +1,196 @@
-/* 
- * SHA-1 hash in C
- * 
- * Copyright (c) 2014 Project Nayuki
- * https://www.nayuki.io/page/fast-sha1-hash-implementation-in-x86-assembly
- * 
- * (MIT License)
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- * - The above copyright notice and this permission notice shall be included in
- *   all copies or substantial portions of the Software.
- * - The Software is provided "as is", without warranty of any kind, express or
- *   implied, including but not limited to the warranties of merchantability,
- *   fitness for a particular purpose and noninfringement. In no event shall the
- *   authors or copyright holders be liable for any claim, damages or other
- *   liability, whether in an action of contract, tort or otherwise, arising from,
- *   out of or in connection with the Software or the use or other dealings in the
- *   Software.
+/*
+ *  Copyright 2014-2022 The GmSSL Project. All Rights Reserved.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the License); you may
+ *  not use this file except in compliance with the License.
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
  */
 
-#include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 
+#include <detail/cryptography/digest.h>
 
-void sha1_compress(uint32_t state[5], const uint8_t block[64]) {
-	#define ROTL32(x, n)  (((0U + (x)) << (n)) | ((x) >> (32 - (n))))  // Assumes that x is uint32_t and 0 < n < 32
-	
-	#define LOADSCHEDULE(i)  \
-		schedule[i] = (uint32_t)block[i * 4 + 0] << 24  \
-		            | (uint32_t)block[i * 4 + 1] << 16  \
-		            | (uint32_t)block[i * 4 + 2] <<  8  \
-		            | (uint32_t)block[i * 4 + 3] <<  0;
-	
-	#define SCHEDULE(i)  \
-		temp = schedule[(i - 3) & 0xF] ^ schedule[(i - 8) & 0xF] ^ schedule[(i - 14) & 0xF] ^ schedule[(i - 16) & 0xF];  \
-		schedule[i & 0xF] = ROTL32(temp, 1);
-	
-	#define ROUND0a(a, b, c, d, e, i)  LOADSCHEDULE(i)  ROUNDTAIL(a, b, e, ((b & c) | (~b & d))         , i, 0x5A827999)
-	#define ROUND0b(a, b, c, d, e, i)  SCHEDULE(i)      ROUNDTAIL(a, b, e, ((b & c) | (~b & d))         , i, 0x5A827999)
-	#define ROUND1(a, b, c, d, e, i)   SCHEDULE(i)      ROUNDTAIL(a, b, e, (b ^ c ^ d)                  , i, 0x6ED9EBA1)
-	#define ROUND2(a, b, c, d, e, i)   SCHEDULE(i)      ROUNDTAIL(a, b, e, ((b & c) ^ (b & d) ^ (c & d)), i, 0x8F1BBCDC)
-	#define ROUND3(a, b, c, d, e, i)   SCHEDULE(i)      ROUNDTAIL(a, b, e, (b ^ c ^ d)                  , i, 0xCA62C1D6)
-	
-	#define ROUNDTAIL(a, b, e, f, i, k)  \
-		e = 0U + e + ROTL32(a, 5) + f + UINT32_C(k) + schedule[i & 0xF];  \
-		b = ROTL32(b, 30);
-	
-	uint32_t a = state[0];
-	uint32_t b = state[1];
-	uint32_t c = state[2];
-	uint32_t d = state[3];
-	uint32_t e = state[4];
-	
-	uint32_t schedule[16];
-	uint32_t temp;
-	ROUND0a(a, b, c, d, e,  0)
-	ROUND0a(e, a, b, c, d,  1)
-	ROUND0a(d, e, a, b, c,  2)
-	ROUND0a(c, d, e, a, b,  3)
-	ROUND0a(b, c, d, e, a,  4)
-	ROUND0a(a, b, c, d, e,  5)
-	ROUND0a(e, a, b, c, d,  6)
-	ROUND0a(d, e, a, b, c,  7)
-	ROUND0a(c, d, e, a, b,  8)
-	ROUND0a(b, c, d, e, a,  9)
-	ROUND0a(a, b, c, d, e, 10)
-	ROUND0a(e, a, b, c, d, 11)
-	ROUND0a(d, e, a, b, c, 12)
-	ROUND0a(c, d, e, a, b, 13)
-	ROUND0a(b, c, d, e, a, 14)
-	ROUND0a(a, b, c, d, e, 15)
-	ROUND0b(e, a, b, c, d, 16)
-	ROUND0b(d, e, a, b, c, 17)
-	ROUND0b(c, d, e, a, b, 18)
-	ROUND0b(b, c, d, e, a, 19)
-	ROUND1(a, b, c, d, e, 20)
-	ROUND1(e, a, b, c, d, 21)
-	ROUND1(d, e, a, b, c, 22)
-	ROUND1(c, d, e, a, b, 23)
-	ROUND1(b, c, d, e, a, 24)
-	ROUND1(a, b, c, d, e, 25)
-	ROUND1(e, a, b, c, d, 26)
-	ROUND1(d, e, a, b, c, 27)
-	ROUND1(c, d, e, a, b, 28)
-	ROUND1(b, c, d, e, a, 29)
-	ROUND1(a, b, c, d, e, 30)
-	ROUND1(e, a, b, c, d, 31)
-	ROUND1(d, e, a, b, c, 32)
-	ROUND1(c, d, e, a, b, 33)
-	ROUND1(b, c, d, e, a, 34)
-	ROUND1(a, b, c, d, e, 35)
-	ROUND1(e, a, b, c, d, 36)
-	ROUND1(d, e, a, b, c, 37)
-	ROUND1(c, d, e, a, b, 38)
-	ROUND1(b, c, d, e, a, 39)
-	ROUND2(a, b, c, d, e, 40)
-	ROUND2(e, a, b, c, d, 41)
-	ROUND2(d, e, a, b, c, 42)
-	ROUND2(c, d, e, a, b, 43)
-	ROUND2(b, c, d, e, a, 44)
-	ROUND2(a, b, c, d, e, 45)
-	ROUND2(e, a, b, c, d, 46)
-	ROUND2(d, e, a, b, c, 47)
-	ROUND2(c, d, e, a, b, 48)
-	ROUND2(b, c, d, e, a, 49)
-	ROUND2(a, b, c, d, e, 50)
-	ROUND2(e, a, b, c, d, 51)
-	ROUND2(d, e, a, b, c, 52)
-	ROUND2(c, d, e, a, b, 53)
-	ROUND2(b, c, d, e, a, 54)
-	ROUND2(a, b, c, d, e, 55)
-	ROUND2(e, a, b, c, d, 56)
-	ROUND2(d, e, a, b, c, 57)
-	ROUND2(c, d, e, a, b, 58)
-	ROUND2(b, c, d, e, a, 59)
-	ROUND3(a, b, c, d, e, 60)
-	ROUND3(e, a, b, c, d, 61)
-	ROUND3(d, e, a, b, c, 62)
-	ROUND3(c, d, e, a, b, 63)
-	ROUND3(b, c, d, e, a, 64)
-	ROUND3(a, b, c, d, e, 65)
-	ROUND3(e, a, b, c, d, 66)
-	ROUND3(d, e, a, b, c, 67)
-	ROUND3(c, d, e, a, b, 68)
-	ROUND3(b, c, d, e, a, 69)
-	ROUND3(a, b, c, d, e, 70)
-	ROUND3(e, a, b, c, d, 71)
-	ROUND3(d, e, a, b, c, 72)
-	ROUND3(c, d, e, a, b, 73)
-	ROUND3(b, c, d, e, a, 74)
-	ROUND3(a, b, c, d, e, 75)
-	ROUND3(e, a, b, c, d, 76)
-	ROUND3(d, e, a, b, c, 77)
-	ROUND3(c, d, e, a, b, 78)
-	ROUND3(b, c, d, e, a, 79)
-	
-	state[0] = 0U + state[0] + a;
-	state[1] = 0U + state[1] + b;
-	state[2] = 0U + state[2] + c;
-	state[3] = 0U + state[3] + d;
-	state[4] = 0U + state[4] + e;
+static void sha1_compress_blocks(uint32_t state[5],
+    const unsigned char *data, size_t blocks)
+{
+#define GETU32(p) \
+    ((uint32_t)(p)[0] << 24 | (uint32_t)(p)[1] << 16 | (uint32_t)(p)[2] << 8 | (uint32_t)(p)[3])
+
+#define PUTU32(p, V)                   \
+    ((p)[0] = (uint8_t)((V) >> 24),    \
+        (p)[1] = (uint8_t)((V) >> 16), \
+        (p)[2] = (uint8_t)((V) >> 8),  \
+        (p)[3] = (uint8_t)(V))
+
+#define ROL32(a, n) (((a) << (n)) | (((a)&0xffffffff) >> (32 - (n))))
+
+#define F0(B, C, D) (((B) & (C)) | ((~(B)) & (D)))
+#define F1(B, C, D) ((B) ^ (C) ^ (D))
+#define F2(B, C, D) (((B) & (C)) | ((B) & (D)) | ((C) & (D)))
+#define F3(B, C, D) ((B) ^ (C) ^ (D))
+
+#define K0 0x5A827999
+#define K1 0x6ED9EBA1
+#define K2 0x8F1BBCDC
+#define K3 0xCA62C1D6
+
+    uint32_t A;
+    uint32_t B;
+    uint32_t C;
+    uint32_t D;
+    uint32_t E;
+    uint32_t T;
+    uint32_t W[80];
+    int i;
+
+    while (blocks--)
+    {
+        A = state[0];
+        B = state[1];
+        C = state[2];
+        D = state[3];
+        E = state[4];
+
+        for (i = 0; i < 16; i++)
+        {
+            W[i] = GETU32(data);
+            data += 4;
+        }
+        for (; i < 80; i++)
+        {
+            W[i] = ROL32(W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16], 1);
+        }
+
+        /* see https://en.wikipedia.org/wiki/SHA-1#/media/File:SHA-1.svg */
+        for (i = 0; i < 20; i++)
+        {
+            T = E + F0(B, C, D) + ROL32(A, 5) + W[i] + K0;
+            E = D;
+            D = C;
+            C = ROL32(B, 30);
+            B = A;
+            A = T;
+        }
+        for (; i < 40; i++)
+        {
+            T = E + F1(B, C, D) + ROL32(A, 5) + W[i] + K1;
+            E = D;
+            D = C;
+            C = ROL32(B, 30);
+            B = A;
+            A = T;
+        }
+        for (; i < 60; i++)
+        {
+            T = E + F2(B, C, D) + ROL32(A, 5) + W[i] + K2;
+            E = D;
+            D = C;
+            C = ROL32(B, 30);
+            B = A;
+            A = T;
+        }
+        for (; i < 80; i++)
+        {
+            T = E + F3(B, C, D) + ROL32(A, 5) + W[i] + K3;
+            E = D;
+            D = C;
+            C = ROL32(B, 30);
+            B = A;
+            A = T;
+        }
+
+        state[0] += A;
+        state[1] += B;
+        state[2] += C;
+        state[3] += D;
+        state[4] += E;
+    }
 }
 
+void sha1_init(SHA1_CTX *ctx)
+{
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->state[0] = 0x67452301;
+    ctx->state[1] = 0xEFCDAB89;
+    ctx->state[2] = 0x98BADCFE;
+    ctx->state[3] = 0x10325476;
+    ctx->state[4] = 0xC3D2E1F0;
+}
 
-void sha1_hash(const uint8_t *message, size_t len, uint32_t hash[5]) {
-    hash[0] = UINT32_C(0x67452301);
-    hash[1] = UINT32_C(0xEFCDAB89);
-    hash[2] = UINT32_C(0x98BADCFE);
-    hash[3] = UINT32_C(0x10325476);
-    hash[4] = UINT32_C(0xC3D2E1F0);
+void sha1_update(SHA1_CTX *ctx, const unsigned char *data, size_t datalen)
+{
+    size_t blocks;
 
-#define BLOCK_SIZE 64  // In bytes
-#define LENGTH_SIZE 8  // In bytes
-
-    size_t off;
-    for (off = 0; len - off >= BLOCK_SIZE; off += BLOCK_SIZE)
-        sha1_compress(hash, &message[off]);
-
-    uint8_t block[BLOCK_SIZE] = { 0 };
-    size_t rem = len - off;
-    memcpy(block, &message[off], rem);
-
-    block[rem] = 0x80;
-    rem++;
-    if (BLOCK_SIZE - rem < LENGTH_SIZE) {
-        sha1_compress(hash, block);
-        memset(block, 0, sizeof(block));
+    ctx->num &= 0x3f;
+    if (ctx->num)
+    {
+        size_t left = SHA1_BLOCK_SIZE - ctx->num;
+        if (datalen < left)
+        {
+            memcpy(ctx->block + ctx->num, data, datalen);
+            ctx->num += datalen;
+            return;
+        }
+        else
+        {
+            memcpy(ctx->block + ctx->num, data, left);
+            sha1_compress_blocks(ctx->state, ctx->block, 1);
+            ctx->nblocks++;
+            data += left;
+            datalen -= left;
+        }
     }
 
-    block[BLOCK_SIZE - 1] = (uint8_t)((len & 0x1FU) << 3);
-    len >>= 5;
-	int i;
-    for (i = 1; i < LENGTH_SIZE; i++, len >>= 8)
-        block[BLOCK_SIZE - 1 - i] = (uint8_t)(len & 0xFFU);
-    sha1_compress(hash, block);
+    blocks = datalen / SHA1_BLOCK_SIZE;
+    if (blocks)
+    {
+        sha1_compress_blocks(ctx->state, data, blocks);
+        ctx->nblocks += blocks;
+        data += SHA1_BLOCK_SIZE * blocks;
+        datalen -= SHA1_BLOCK_SIZE * blocks;
+    }
+
+    ctx->num = datalen;
+    if (datalen)
+    {
+        memcpy(ctx->block, data, datalen);
+    }
+}
+
+void sha1_finish(SHA1_CTX *ctx, unsigned char *dgst)
+{
+    int i;
+
+    ctx->num &= 0x3f;
+    ctx->block[ctx->num] = 0x80;
+
+    if (ctx->num <= SHA1_BLOCK_SIZE - 9)
+    {
+        memset(ctx->block + ctx->num + 1, 0, SHA1_BLOCK_SIZE - ctx->num - 9);
+    }
+    else
+    {
+        memset(ctx->block + ctx->num + 1, 0, SHA1_BLOCK_SIZE - ctx->num - 1);
+        sha1_compress_blocks(ctx->state, ctx->block, 1);
+        memset(ctx->block, 0, SHA1_BLOCK_SIZE - 8);
+    }
+    PUTU32(ctx->block + 56, ctx->nblocks >> 23);
+    PUTU32(ctx->block + 60, (ctx->nblocks << 9) + (ctx->num << 3));
+
+    sha1_compress_blocks(ctx->state, ctx->block, 1);
+    for (i = 0; i < 5; i++)
+    {
+        PUTU32(dgst + i * 4, ctx->state[i]);
+    }
+    memset(ctx, 0, sizeof(*ctx));
+}
+
+void sha1_digest(const unsigned char *data, size_t datalen,
+    unsigned char dgst[SHA1_DIGEST_SIZE])
+{
+    SHA1_CTX ctx;
+    sha1_init(&ctx);
+    sha1_update(&ctx, data, datalen);
+    sha1_finish(&ctx, dgst);
 }

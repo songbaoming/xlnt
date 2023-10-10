@@ -25,8 +25,6 @@
 
 #include <vector>
 
-#include <detail/cryptography/sha.hpp>
-
 namespace xlnt {
 namespace detail {
 
@@ -55,4 +53,3 @@ enum class cipher_direction
 
 }; // namespace detail
 }; // namespace xlnt
-

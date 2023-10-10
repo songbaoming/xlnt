@@ -25,7 +25,6 @@
 
 #include <vector>
 
-#include <detail/cryptography/sha.hpp>
 #include <xlnt/utils/exceptions.hpp>
 
 namespace xlnt {
@@ -50,4 +49,3 @@ std::vector<std::uint8_t> hash(hash_algorithm algorithm, const std::vector<std::
 
 }; // namespace detail
 }; // namespace xlnt
-
