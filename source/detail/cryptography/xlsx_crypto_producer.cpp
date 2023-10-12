@@ -324,6 +324,11 @@ std::vector<std::uint8_t> XLNT_API encrypt_xlsx(
 
 void xlsx_producer::write(std::ostream &destination, const std::string &password)
 {
+    if (!destination)
+    {
+        throw xlnt::exception("bad compound stream");
+    }
+
     std::vector<std::uint8_t> plaintext;
     vector_ostreambuf plaintext_buffer(plaintext);
     std::ostream decrypted_stream(&plaintext_buffer);
