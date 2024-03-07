@@ -286,25 +286,27 @@ std::vector<std::uint8_t> encrypt_xlsx(
 
     auto ciphertext = std::vector<std::uint8_t>();
 
-    xlnt::detail::vector_ostreambuf buffer(ciphertext);
-    std::ostream stream(&buffer);
-    xlnt::detail::compound_document document(stream);
-
-    write_data_spaces(document);
-
-    if (encryption_info.is_agile)
     {
-        encrypt_xlsx_agile(encryption_info, plaintext,
-            document.open_write_stream("/EncryptedPackage"));
-        write_agile_encryption_info(encryption_info,
-            document.open_write_stream("/EncryptionInfo"));
-    }
-    else
-    {
-        encrypt_xlsx_standard(encryption_info, plaintext,
-            document.open_write_stream("/EncryptedPackage"));
-        write_standard_encryption_info(encryption_info,
-            document.open_write_stream("/EncryptionInfo"));
+        xlnt::detail::vector_ostreambuf buffer(ciphertext);
+        std::ostream stream(&buffer);
+        xlnt::detail::compound_document document(stream);
+
+        write_data_spaces(document);
+
+        if (encryption_info.is_agile)
+        {
+            encrypt_xlsx_agile(encryption_info, plaintext,
+                document.open_write_stream("/EncryptedPackage"));
+            write_agile_encryption_info(encryption_info,
+                document.open_write_stream("/EncryptionInfo"));
+        }
+        else
+        {
+            encrypt_xlsx_standard(encryption_info, plaintext,
+                document.open_write_stream("/EncryptedPackage"));
+            write_standard_encryption_info(encryption_info,
+                document.open_write_stream("/EncryptionInfo"));
+        }
     }
 
     return ciphertext;

@@ -36,36 +36,9 @@
 namespace xlnt {
 namespace detail {
 
-using directory_id = std::int32_t;
-using sector_id = std::int32_t;
+using directory_id = std::uint32_t;
+using sector_id = std::uint32_t;
 using sector_chain = std::vector<sector_id>;
-
-struct compound_document_header
-{
-    enum class byte_order_type : uint16_t
-    {
-        big_endian = 0xFEFF,
-        little_endian = 0xFFFE
-    };
-
-    std::uint64_t file_id = 0xE11AB1A1E011CFD0;
-    std::array<std::uint8_t, 16> ignore1 = {{0}};
-    std::uint16_t revision = 0x003E;
-    std::uint16_t version = 0x0003;
-    byte_order_type byte_order = byte_order_type::little_endian;
-    std::uint16_t sector_size_power = 9;
-    std::uint16_t short_sector_size_power = 6;
-    std::array<std::uint8_t, 10> ignore2 = {{0}};
-    std::uint32_t num_msat_sectors = 0;
-    sector_id directory_start = -1;
-    std::array<std::uint8_t, 4> ignore3 = {{0}};
-    std::uint32_t threshold = 4096;
-    sector_id ssat_start = -2;
-    std::uint32_t num_ssat_sectors = 0;
-    sector_id extra_msat_start = -2;
-    std::uint32_t num_extra_msat_sectors = 0;
-    std::array<sector_id, 109> msat = {{0}};
-};
 
 struct compound_document_entry
 {
@@ -100,13 +73,19 @@ struct compound_document_entry
         Black = 1
     };
 
+    enum dirid : directory_id
+    {
+        maxregsid = 0xFFFFFFFA,
+        end = 0xFFFFFFFF,
+    };
+
     std::array<char16_t, 32> name_array = {{0}};
     std::uint16_t name_length = 0;
     entry_type type = entry_type::Empty;
     entry_color color = entry_color::Red;
-    directory_id prev = -1;
-    directory_id next = -1;
-    directory_id child = -1;
+    directory_id prev = dirid::end;
+    directory_id next = dirid::end;
+    directory_id child = dirid::end;
     std::array<std::uint8_t, 36> ignore;
     sector_id start = 0;
     std::uint32_t size = 0;
@@ -118,6 +97,11 @@ class compound_document_ostreambuf;
 
 class compound_document
 {
+    friend class compound_document_istreambuf;
+    friend class compound_document_ostreambuf;
+
+    using dirid = compound_document_entry::dirid;
+
 public:
     compound_document(std::istream &in);
     compound_document(std::ostream &out);
@@ -129,9 +113,6 @@ public:
     std::ostream &open_write_stream(const std::string &filename);
 
 private:
-    friend class compound_document_istreambuf;
-    friend class compound_document_ostreambuf;
-
     template <typename T>
     void read_sector(sector_id id, binary_writer<T> &writer);
     template <typename T>
@@ -203,7 +184,55 @@ private:
     std::string tree_key(directory_id id);
     compound_document_entry::entry_color &tree_color(directory_id id);
 
+private:
+    enum secid : sector_id
+    {
+        msat = 0xFFFFFFFC,
+        sat = 0xFFFFFFFD,
+        end_of_chain = 0xFFFFFFFE,
+        free = 0xFFFFFFFF,
+    };
+
+    struct compound_document_header
+    {
+        enum class byte_order_type : uint16_t
+        {
+            big_endian = 0xFEFF,
+            little_endian = 0xFFFE
+        };
+
+        std::uint64_t file_id = 0xE11AB1A1E011CFD0;
+        std::array<std::uint8_t, 16> ignore1 = {{0}};
+        std::uint16_t revision = 0x003E;
+        std::uint16_t version = 0x0003;
+        byte_order_type byte_order = byte_order_type::little_endian;
+        std::uint16_t sector_size_power = 9;
+        std::uint16_t short_sector_size_power = 6;
+        std::array<std::uint8_t, 10> ignore2 = {{0}};
+        std::uint32_t num_msat_sectors = 0;
+        sector_id directory_start = secid::free;
+        std::array<std::uint8_t, 4> ignore3 = {{0}};
+        std::uint32_t threshold = 4096;
+        sector_id ssat_start = secid::end_of_chain;
+        std::uint32_t num_ssat_sectors = 0;
+        sector_id extra_msat_start = secid::end_of_chain;
+        std::uint32_t num_extra_msat_sectors = 0;
+        std::array<sector_id, 109> msat = {{0}};
+    };
+
+    enum change_bit : uint32_t
+    {
+        hdr_bit = 0x01,
+        msat_bit = 0x02,
+        sat_bit = 0x04,
+        ssat_bit = 0x08,
+        dir_bit = 0x10,
+    };
+
+    uint32_t change_;
+
     compound_document_header header_;
+    sector_chain extra_msat_;
     sector_chain msat_;
     sector_chain sat_;
     sector_chain ssat_;

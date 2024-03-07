@@ -30,6 +30,7 @@
 #include <locale>
 #include <string>
 #include <vector>
+#include <list>
 
 #include <xlnt/utils/exceptions.hpp>
 #include <detail/binary.hpp>
@@ -72,7 +73,8 @@ std::vector<std::string> split_path(const std::string &path)
     return split;
 }
 
-std::string join_path(const std::vector<std::string> &path)
+template <typename T>
+std::string join_path(const T &path)
 {
     auto joined = std::string();
 
@@ -84,13 +86,6 @@ std::string join_path(const std::vector<std::string> &path)
 
     return joined;
 }
-
-const sector_id FreeSector = -1;
-const sector_id EndOfChain = -2;
-const sector_id SATSector = -3;
-//const sector_id MSATSector = -4;
-
-const directory_id End = -1;
 
 } // namespace
 
@@ -292,6 +287,7 @@ compound_document_istreambuf::~compound_document_istreambuf()
 class compound_document_ostreambuf : public std::streambuf
 {
     using int_type = std::streambuf::int_type;
+    using change_bit = compound_document::change_bit;
 
 public:
     compound_document_ostreambuf(compound_document_entry &entry, compound_document &document)
@@ -352,7 +348,7 @@ private:
 
         position_ += written;
         entry_.size = std::max(entry_.size, static_cast<std::uint32_t>(position_));
-        document_.write_directory();
+        document_.change_ |= change_bit::dir_bit;
 
         std::fill(current_sector_.begin(), current_sector_.end(), byte(0));
         setp(reinterpret_cast<char *>(current_sector_.data()),
@@ -375,14 +371,14 @@ private:
             auto next_sector = document_.allocate_short_sector();
             document_.ssat_[static_cast<std::size_t>(chain_.back())] = next_sector;
             chain_.push_back(next_sector);
-            document_.write_ssat();
+            document_.change_ |= change_bit::ssat_bit;
         }
         else
         {
             auto next_sector = document_.allocate_sector();
             document_.sat_[static_cast<std::size_t>(chain_.back())] = next_sector;
             chain_.push_back(next_sector);
-            document_.write_sat();
+            document_.change_ |= change_bit::sat_bit;
         }
 
         auto value = static_cast<std::uint8_t>(c);
@@ -413,7 +409,7 @@ private:
         current_sector_.resize(document_.sector_size(), 0);
         std::fill(current_sector_.begin(), current_sector_.end(), byte(0));
 
-        if (entry_.start > 0)
+        if (entry_.start && entry_.start < compound_document_entry::dirid::end)
         {
             // TODO: deallocate short sectors here
             assert(false);
@@ -421,7 +417,7 @@ private:
 
         chain_ = new_chain;
         entry_.start = chain_.front();
-        document_.write_directory();
+        document_.change_ |= change_bit::dir_bit;
     }
 
     std::streampos seekoff(std::streamoff off, std::ios_base::seekdir way, std::ios_base::openmode) override
@@ -496,17 +492,19 @@ compound_document_ostreambuf::~compound_document_ostreambuf()
 }
 
 compound_document::compound_document(std::ostream &out)
-    : out_(&out),
+    : change_(0),
+      out_(&out),
       stream_in_(nullptr),
       stream_out_(nullptr)
 {
-    header_.msat.fill(FreeSector);
+    header_.msat.fill(secid::free);
     write_header();
     insert_entry("/Root Entry", compound_document_entry::entry_type::RootStorage);
 }
 
 compound_document::compound_document(std::istream &in)
-    : in_(&in),
+    : change_(0),
+      in_(&in),
       stream_in_(nullptr),
       stream_out_(nullptr)
 {
@@ -524,6 +522,18 @@ compound_document::~compound_document()
 
 void compound_document::close()
 {
+    if (change_ & change_bit::hdr_bit)
+        write_header();
+    if (change_ & change_bit::msat_bit)
+        write_msat();
+    if (change_ & change_bit::sat_bit)
+        write_sat();
+    if (change_ & change_bit::ssat_bit)
+        write_ssat();
+    if (change_ & change_bit::dir_bit)
+        write_directory();
+    change_ = 0;
+
     stream_out_buffer_.reset(nullptr);
     for (auto &entry : entries_)
         delete entry;
@@ -658,34 +668,56 @@ void compound_document::read_short_sector_chain(sector_id start, binary_writer<T
 sector_id compound_document::allocate_sector()
 {
     const auto sectors_per_sector = sector_size() / sizeof(sector_id);
-    auto next_free_iter = std::find(sat_.begin(), sat_.end(), FreeSector);
+    auto next_free_iter = std::find(sat_.begin(), sat_.end(), secid::free);
 
     if (next_free_iter == sat_.end())
     {
         auto next_msat_index = header_.num_msat_sectors;
         auto new_sat_sector_id = sector_id(sat_.size());
 
-        msat_.push_back(new_sat_sector_id);
-        write_msat();
-
-        header_.msat[msat_.size() - 1] = new_sat_sector_id;
-        ++header_.num_msat_sectors;
-        write_header();
-
-        sat_.resize(sat_.size() + sectors_per_sector, FreeSector);
-        sat_[static_cast<std::size_t>(new_sat_sector_id)] = SATSector;
+        sat_.resize(sat_.size() + sectors_per_sector, secid::free);
+        sat_[static_cast<std::size_t>(new_sat_sector_id)] = secid::sat;
 
         auto sat_reader = binary_reader<sector_id>(sat_);
         sat_reader.offset(next_msat_index * sectors_per_sector);
         write_sector(sat_reader, new_sat_sector_id);
 
-        next_free_iter = std::find(sat_.begin(), sat_.end(), FreeSector);
+        ++header_.num_msat_sectors;
+        msat_.push_back(new_sat_sector_id);
+
+        if (msat_.size() <= 109)
+        {
+            header_.msat[msat_.size() - 1] = new_sat_sector_id;
+        }
+        else
+        {
+            auto i = ((msat_.size() + (header_.num_extra_msat_sectors ? (header_.num_extra_msat_sectors - 1) : 0) - 109 + sectors_per_sector - 1) / sectors_per_sector);
+            if (i > header_.num_extra_msat_sectors)
+            {
+                // 额外的 msat 项数量占用的扇区数大于已有 extra 扇区数时，需要新分配 extra 扇区
+                ++new_sat_sector_id;
+                ++header_.num_extra_msat_sectors;
+                extra_msat_.push_back(new_sat_sector_id);
+                if (header_.extra_msat_start == secid::end_of_chain)
+                    header_.extra_msat_start = new_sat_sector_id;
+
+                sat_[static_cast<std::size_t>(new_sat_sector_id)] = secid::msat;
+
+                auto empty_sector = std::vector<byte>(sector_size());
+                auto empty_sector_reader = binary_reader<byte>(empty_sector);
+                write_sector(empty_sector_reader, new_sat_sector_id);
+            }
+        }
+
+        change_ |= change_bit::hdr_bit | change_bit::msat_bit;
+
+        next_free_iter = std::find(sat_.begin(), sat_.end(), secid::free);
     }
 
     auto next_free = sector_id(next_free_iter - sat_.begin());
-    sat_[static_cast<std::size_t>(next_free)] = EndOfChain;
+    sat_[static_cast<std::size_t>(next_free)] = secid::end_of_chain;
 
-    write_sat();
+    change_ |= change_bit::sat_bit;
 
     auto empty_sector = std::vector<byte>(sector_size());
     auto empty_sector_reader = binary_reader<byte>(empty_sector);
@@ -710,7 +742,7 @@ sector_chain compound_document::allocate_sectors(std::size_t count)
     }
 
     chain.push_back(current);
-    write_sat();
+    change_ |= change_bit::sat_bit;
 
     return chain;
 }
@@ -720,7 +752,7 @@ sector_chain compound_document::follow_chain(sector_id start, const sector_chain
     auto chain = sector_chain();
     auto current = start;
 
-    while (current >= 0)
+    while (current < secid::msat)
     {
         chain.push_back(current);
         current = table[static_cast<std::size_t>(current)];
@@ -745,7 +777,7 @@ sector_chain compound_document::allocate_short_sectors(std::size_t count)
     }
 
     chain.push_back(current);
-    write_ssat();
+    change_ |= change_bit::ssat_bit;
 
     return chain;
 }
@@ -753,13 +785,13 @@ sector_chain compound_document::allocate_short_sectors(std::size_t count)
 sector_id compound_document::allocate_short_sector()
 {
     const auto sectors_per_sector = sector_size() / sizeof(sector_id);
-    auto next_free_iter = std::find(ssat_.begin(), ssat_.end(), FreeSector);
+    auto next_free_iter = std::find(ssat_.begin(), ssat_.end(), secid::free);
 
     if (next_free_iter == ssat_.end())
     {
         auto new_ssat_sector_id = allocate_sector();
 
-        if (header_.ssat_start < 0)
+        if (header_.ssat_start == secid::end_of_chain)
         {
             header_.ssat_start = new_ssat_sector_id;
         }
@@ -767,25 +799,25 @@ sector_id compound_document::allocate_short_sector()
         {
             auto ssat_chain = follow_chain(header_.ssat_start, sat_);
             sat_[static_cast<std::size_t>(ssat_chain.back())] = new_ssat_sector_id;
-            write_sat();
+            change_ |= change_bit::sat_bit;
         }
         ++header_.num_ssat_sectors;
-        write_header();
+        change_ |= change_bit::hdr_bit;
 
         auto old_size = ssat_.size();
-        ssat_.resize(old_size + sectors_per_sector, FreeSector);
+        ssat_.resize(old_size + sectors_per_sector, secid::free);
 
         auto ssat_reader = binary_reader<sector_id>(ssat_);
         ssat_reader.offset(old_size / sectors_per_sector);
         write_sector(ssat_reader, new_ssat_sector_id);
 
-        next_free_iter = std::find(ssat_.begin(), ssat_.end(), FreeSector);
+        next_free_iter = std::find(ssat_.begin(), ssat_.end(), secid::free);
     }
 
     auto next_free = sector_id(next_free_iter - ssat_.begin());
-    ssat_[static_cast<std::size_t>(next_free)] = EndOfChain;
+    ssat_[static_cast<std::size_t>(next_free)] = secid::end_of_chain;
 
-    write_ssat();
+    change_ |= change_bit::ssat_bit;
 
     const auto short_sectors_per_sector = sector_size() / short_sector_size();
     const auto required_container_sectors = static_cast<std::size_t>(next_free) / short_sectors_per_sector + std::size_t(1);
@@ -802,11 +834,11 @@ sector_id compound_document::allocate_short_sector()
         if (required_container_sectors > container_chain.size())
         {
             sat_[static_cast<std::size_t>(container_chain.back())] = allocate_sector();
-            write_sat();
+            change_ |= change_bit::sat_bit;
         }
     }
     entries_[0]->size += short_sector_size();
-    write_entry(0);
+    change_ |= change_bit::dir_bit;
 
     return next_free;
 }
@@ -827,7 +859,7 @@ directory_id compound_document::next_empty_entry()
 
     // entry_id is now equal to entries_.size()
 
-    if (header_.directory_start < 0)
+    if (header_.directory_start >= secid::end_of_chain)
     {
         header_.directory_start = allocate_sector();
     }
@@ -835,7 +867,7 @@ directory_id compound_document::next_empty_entry()
     {
         auto directory_chain = follow_chain(header_.directory_start, sat_);
         sat_[static_cast<std::size_t>(directory_chain.back())] = allocate_sector();
-        write_sat();
+        change_ |= change_bit::sat_bit;
     }
 
     const auto entries_per_sector = sector_size()
@@ -844,8 +876,8 @@ directory_id compound_document::next_empty_entry()
     for (auto i = std::size_t(0); i < entries_per_sector; ++i)
     {
         entries_.push_back(new compound_document_entry());
-        write_entry(entry_id + directory_id(i));
     }
+    change_ |= change_bit::dir_bit;
 
     return entry_id;
 }
@@ -867,7 +899,7 @@ directory_id compound_document::insert_entry(
         auto parent_path = join_path(split);
         parent_id = find_entry(parent_path, compound_document_entry::entry_type::UserStorage);
 
-        if (parent_id < 0)
+        if (parent_id == dirid::end)
         {
             parent_id = insert_entry(parent_path, compound_document_entry::entry_type::UserStorage);
             entry_id = next_empty_entry();
@@ -881,7 +913,7 @@ directory_id compound_document::insert_entry(
     entry->type = type;
 
     tree_insert(entry_id, parent_id);
-    write_directory();
+    change_ |= change_bit::dir_bit;
 
     return entry_id;
 }
@@ -894,7 +926,7 @@ std::size_t compound_document::sector_data_start()
 bool compound_document::contains_entry(const std::string &path,
     compound_document_entry::entry_type type)
 {
-    return find_entry(path, type) >= 0;
+    return find_entry(path, type) < dirid::end;
 }
 
 directory_id compound_document::find_entry(const std::string &name,
@@ -915,7 +947,7 @@ directory_id compound_document::find_entry(const std::string &name,
         ++entry_id;
     }
 
-    return End;
+    return dirid::end;
 }
 
 void compound_document::print_directory()
@@ -964,11 +996,11 @@ void compound_document::read_directory()
         auto current_storage_id = directory_stack.back();
         directory_stack.pop_back();
 
-        if (tree_child(current_storage_id) < 0) continue;
+        if (tree_child(current_storage_id) == dirid::end) continue;
 
         auto storage_stack = std::vector<directory_id>();
         auto storage_root_id = tree_child(current_storage_id);
-        parent_[storage_root_id] = End;
+        parent_[storage_root_id] = dirid::end;
         storage_stack.push_back(storage_root_id);
 
         while (!storage_stack.empty())
@@ -984,13 +1016,13 @@ void compound_document::read_directory()
                 directory_stack.push_back(current_entry_id);
             }
 
-            if (tree_left(current_entry_id) >= 0)
+            if (tree_left(current_entry_id) < dirid::end)
             {
                 storage_stack.push_back(tree_left(current_entry_id));
                 tree_parent(tree_left(current_entry_id)) = current_entry_id;
             }
 
-            if (tree_right(current_entry_id) >= 0)
+            if (tree_right(current_entry_id) < dirid::end)
             {
                 storage_stack.push_back(tree_right(current_entry_id));
                 tree_parent(tree_right(current_entry_id)) = current_entry_id;
@@ -1005,10 +1037,10 @@ void compound_document::tree_insert(directory_id new_id, directory_id storage_id
 
     parent_storage_[new_id] = storage_id;
 
-    tree_left(new_id) = End;
-    tree_right(new_id) = End;
+    tree_left(new_id) = dirid::end;
+    tree_right(new_id) = dirid::end;
 
-    if (tree_root(new_id) == End)
+    if (tree_root(new_id) == dirid::end)
     {
         if (new_id != 0)
         {
@@ -1016,17 +1048,17 @@ void compound_document::tree_insert(directory_id new_id, directory_id storage_id
         }
 
         tree_color(new_id) = entry_color::Black;
-        tree_parent(new_id) = End;
+        tree_parent(new_id) = dirid::end;
 
         return;
     }
 
     // normal tree insert
     // (will probably unbalance the tree, fix after)
-    auto x = tree_root(new_id);
-    auto y = End;
+    directory_id x = tree_root(new_id);
+    directory_id y = dirid::end;
 
-    while (x >= 0)
+    while (x < dirid::end)
     {
         y = x;
 
@@ -1057,11 +1089,11 @@ void compound_document::tree_insert(directory_id new_id, directory_id storage_id
 std::string compound_document::tree_path(directory_id id)
 {
     auto storage_id = parent_storage_[id];
-    auto result = std::vector<std::string>();
+    auto result = std::list<std::string>();
 
-    while (storage_id > 0)
+    while (storage_id && storage_id < dirid::end)
     {
-        result.push_back(entries_[static_cast<std::size_t>(storage_id)]->name());
+        result.push_front(entries_[static_cast<std::size_t>(storage_id)]->name());
         storage_id = parent_storage_[storage_id];
     }
 
@@ -1075,7 +1107,7 @@ void compound_document::tree_rotate_left(directory_id x)
     // turn y's left subtree into x's right subtree
     tree_right(x) = tree_left(y);
 
-    if (tree_left(y) != End)
+    if (tree_left(y) != dirid::end)
     {
         tree_parent(tree_left(y)) = x;
     }
@@ -1083,7 +1115,7 @@ void compound_document::tree_rotate_left(directory_id x)
     // link x's parent to y
     tree_parent(y) = tree_parent(x);
 
-    if (tree_parent(x) == End)
+    if (tree_parent(x) == dirid::end)
     {
         tree_root(x) = y;
     }
@@ -1108,7 +1140,7 @@ void compound_document::tree_rotate_right(directory_id y)
     // turn x's right subtree into y's left subtree
     tree_left(y) = tree_right(x);
 
-    if (tree_right(x) != End)
+    if (tree_right(x) != dirid::end)
     {
         tree_parent(tree_right(x)) = y;
     }
@@ -1116,7 +1148,7 @@ void compound_document::tree_rotate_right(directory_id y)
     // link y's parent to x
     tree_parent(x) = tree_parent(y);
 
-    if (tree_parent(y) == End)
+    if (tree_parent(y) == dirid::end)
     {
         tree_root(y) = x;
     }
@@ -1146,7 +1178,7 @@ void compound_document::tree_insert_fixup(directory_id x)
         {
             auto y = tree_right(tree_parent(tree_parent(x)));
 
-            if (y >= 0 && tree_color(y) == entry_color::Red)
+            if (y < dirid::end && tree_color(y) == entry_color::Red)
             {
                 // case 1
                 tree_color(tree_parent(x)) = entry_color::Black;
@@ -1173,7 +1205,7 @@ void compound_document::tree_insert_fixup(directory_id x)
         {
             auto y = tree_left(tree_parent(tree_parent(x)));
 
-            if (y >= 0 && tree_color(y) == entry_color::Red)
+            if (y < dirid::end && tree_color(y) == entry_color::Red)
             {
                 //case 1
                 tree_color(tree_parent(x)) = entry_color::Black;
@@ -1246,16 +1278,18 @@ void compound_document::read_msat()
 {
     msat_.clear();
 
-    auto msat_sector = header_.extra_msat_start;
-    auto msat_writer = binary_writer<sector_id>(msat_);
-
-    for (auto i = std::uint32_t(0); i < header_.num_msat_sectors; ++i)
+    for (size_t i = 0; i < 109; ++i)
     {
-        if (i < std::uint32_t(109))
-        {
-            msat_writer.write(header_.msat[i]);
-        }
-        else
+        if (header_.msat[i] < secid::msat)
+            msat_.push_back(header_.msat[i]);
+    }
+
+    if (header_.num_msat_sectors > 109 && header_.num_extra_msat_sectors)
+    {
+        auto msat_sector = header_.extra_msat_start;
+        auto msat_writer = binary_writer<sector_id>(msat_);
+
+        for (auto i = std::uint32_t(0); i < header_.num_extra_msat_sectors; ++i)
         {
             read_sector(msat_sector, msat_writer);
 
@@ -1307,46 +1341,52 @@ void compound_document::write_header()
 
 void compound_document::write_msat()
 {
-    auto msat_sector = header_.extra_msat_start;
+    if (!header_.num_extra_msat_sectors)
+        return;
 
-    for (auto i = std::uint32_t(0); i < header_.num_msat_sectors; ++i)
+    const auto sectors_per_sector = sector_size() / sizeof(sector_id);
+    auto extra_msat_sector = std::vector<sector_id>(sectors_per_sector, secid::free);
+    auto sector_reader = binary_reader<sector_id>(extra_msat_sector);
+
+    for (size_t msat_offset = 109, num_msat = msat_.size(), chain_index = 0, num_sectors = extra_msat_.size();
+         msat_offset < num_msat && chain_index < num_sectors; ++chain_index)
     {
-        if (i < std::uint32_t(109))
+        auto count = num_msat - msat_offset;
+        std::fill(extra_msat_sector.begin(), extra_msat_sector.end(), secid::free);
+        if (count > sectors_per_sector)
         {
-            header_.msat[i] = msat_[i];
+            count = sectors_per_sector - 1;
+            extra_msat_sector.back() = extra_msat_[chain_index + 1];
         }
-        else
-        {
-            auto sector = std::vector<sector_id>();
-            auto sector_writer = binary_writer<sector_id>(sector);
+        std::copy(msat_.begin() + msat_offset, msat_.begin() + msat_offset + count, extra_msat_sector.begin());
+        msat_offset += count;
 
-            read_sector(msat_sector, sector_writer);
-
-            msat_sector = sector.back();
-            sector.pop_back();
-
-            std::copy(sector.begin(), sector.end(), std::back_inserter(msat_));
-        }
+        write_sector(sector_reader, extra_msat_[chain_index]);
+        sector_reader.offset(sector_reader.offset() + sectors_per_sector);
     }
 }
 
 void compound_document::write_sat()
 {
+    const auto sectors_per_sector = sector_size() / sizeof(sector_id);
     auto sector_reader = binary_reader<sector_id>(sat_);
 
     for (auto sat_sector : msat_)
     {
         write_sector(sector_reader, sat_sector);
+        sector_reader.offset(sector_reader.offset() + sectors_per_sector);
     }
 }
 
 void compound_document::write_ssat()
 {
+    const auto sectors_per_sector = sector_size() / sizeof(sector_id);
     auto sector_reader = binary_reader<sector_id>(ssat_);
 
     for (auto ssat_sector : follow_chain(header_.ssat_start, sat_))
     {
         write_sector(sector_reader, ssat_sector);
+        sector_reader.offset(sector_reader.offset() + sectors_per_sector);
     }
 }
 
